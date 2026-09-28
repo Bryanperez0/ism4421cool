@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tunesmith</title>
+<meta name="description" content="Generate songs with AI from a description, a style, or your own lyrics.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%237c5cff'/><path d='M12 22a3 3 0 1 1-2-2.83V9l12-2v11a3 3 0 1 1-2-2.83V10.4l-8 1.33z' fill='white'/></svg>">
+<style>
+  :root {
+    --bg: #f6f6f9; --panel: #ffffff; --panel-2: #f0f0f5; --text: #17171c; --muted: #62626f;
+    --line: #e2e2ea; --accent: #6a4cff; --accent-ink: #ffffff; --accent-soft: #ece8ff;
+    --ok: #177a4a; --warn: #9a6200; --err: #b3261e; --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e0e13; --panel: #17171f; --panel-2: #20202a; --text: #ececf2; --muted: #9a9aab;
+      --line: #2c2c38; --accent: #8b73ff; --accent-ink: #0e0e13; --accent-soft: #262040;
+      --ok: #4cc38a; --warn: #e0a84a; --err: #ff7a70;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { max-width: 1120px; margin: 0 auto; padding: 20px 16px 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; }
+  .brand svg { width: 30px; height: 30px; }
+  .credits { font-size: 13px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
+  .credits b { color: var(--text); }
+  main { max-width: 1120px; margin: 0 auto; padding: 8px 16px 48px; display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 20px; align-items: start; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; background: var(--panel-2); border-radius: 10px; padding: 4px; margin-bottom: 16px; }
+  .tabs button { border: 0; background: transparent; color: var(--muted); padding: 8px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+  .tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 6px; }
+  label .hint { font-weight: 400; color: var(--muted); }
+  input[type=text], textarea, select { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  textarea { resize: vertical; min-height: 90px; }
+  #lyrics { min-height: 170px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .counter { text-align: right; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  .chip:hover { border-color: var(--accent); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding: 10px 12px; background: var(--panel-2); border-radius: 10px; }
+  .toggle span { font-weight: 600; font-size: 13px; }
+  .toggle small { display: block; font-weight: 400; color: var(--muted); }
+  .switch { position: relative; width: 42px; height: 24px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch i { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: .15s; cursor: pointer; }
+  .switch i::after { content: ""; position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: .15s; }
+  .switch input:checked + i { background: var(--accent); }
+  .switch input:checked + i::after { transform: translateX(18px); }
+  .switch input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .range-head { display: flex; justify-content: space-between; }
+  .range-head output { font-weight: 400; color: var(--muted); }
+  details.adv { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+  details.adv summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--muted); }
+  .lyrics-helper { display: flex; gap: 8px; margin-top: 8px; }
+  .lyrics-helper input { flex: 1; }
+  .btn { border: 0; border-radius: 10px; padding: 10px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn-primary { width: 100%; margin-top: 18px; padding: 13px; background: var(--accent); color: var(--accent-ink); font-size: 15px; }
+  .btn-secondary { background: var(--accent-soft); color: var(--text); white-space: nowrap; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .msg { margin-top: 12px; font-size: 13px; padding: 10px 12px; border-radius: 10px; display: none; }
+  .msg.show { display: block; }
+  .msg.err { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
+  .msg.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
+  .hidden { display: none !important; }
+  .list-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .link { background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; }
+  .empty { color: var(--muted); text-align: center; padding: 48px 16px; border: 1px dashed var(--line); border-radius: var(--radius); }
+  .job { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; }
+  .job-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .job-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; margin-top: 4px; }
+  .status.pending { color: var(--warn); } .status.done { color: var(--ok); } .status.failed { color: var(--err); }
+  .spinner { width: 10px; height: 10px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .tracks { display: grid; gap: 12px; margin-top: 12px; }
+  .track { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; background: var(--panel-2); border-radius: 12px; padding: 10px; }
+  .cover { width: 84px; height: 84px; border-radius: 10px; object-fit: cover; background: var(--line); }
+  .track h3 { margin: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tags { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track audio { width: 100%; height: 36px; margin-top: 6px; }
+  .track-actions { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; margin-top: 4px; }
+  .track-actions a, .track-actions button { color: var(--accent); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: none; }
+  .track details { grid-column: 1 / -1; font-size: 13px; }
+  .track details summary { cursor: pointer; color: var(--muted); }
+  .track pre { white-space: pre-wrap; font-family: inherit; margin: 8px 0 0; max-height: 260px; overflow: auto; }
+  footer { max-width: 1120px; margin: 0 auto; padding: 0 16px 32px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M12 22a3 3 0 1 1-2-2.83V9l12-2v11a3 3 0 1 1-2-2.83V10.4l-8 1.33z" fill="var(--accent-ink)"/></svg>
+    Tunesmith
+  </div>
+  <div class="credits" id="credits" title="Suno API credits remaining">Credits: <b>…</b></div>
+</header>
+
+<main>
+  <section class="panel" aria-labelledby="create-h">
+    <h2 id="create-h">Create a song</h2>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tab-simple" aria-selected="true">Simple</button>
+      <button role="tab" id="tab-custom" aria-selected="false">Custom</button>
+    </div>
+
+    <form id="form" novalidate>
+      <div id="simple-fields">
+        <label for="prompt">Describe your song <span class="hint">— the AI writes the lyrics</span></label>
+        <textarea id="prompt" maxlength="3000" placeholder="An upbeat summer pop song about a road trip with friends"></textarea>
+        <div class="counter"><span data-count="prompt">0</span> / 3000</div>
+      </div>
+
+      <div id="custom-fields" class="hidden">
+        <label for="title">Title <span class="hint">(optional)</span></label>
+        <input type="text" id="title" maxlength="80" placeholder="Midnight Drive">
+
+        <div id="lyrics-block">
+          <label for="lyrics">Lyrics</label>
+          <textarea id="lyrics" maxlength="5000" placeholder="[Verse]&#10;City lights are fading slow&#10;&#10;[Chorus]&#10;..."></textarea>
+          <div class="counter"><span data-count="lyrics">0</span> / 5000</div>
+          <div class="lyrics-helper">
+            <input type="text" id="lyrics-idea" maxlength="200" placeholder="Need lyrics? Describe the topic">
+            <button type="button" class="btn btn-secondary" id="lyrics-btn">Write lyrics</button>
+          </div>
+        </div>
+      </div>
+
+      <label for="style">Style <span class="hint">— genre, mood, instruments</span></label>
+      <input type="text" id="style" maxlength="1000" placeholder="indie pop, warm synths, female vocals">
+      <div class="chips" id="style-chips"></div>
+
+      <div class="toggle">
+        <span>Instrumental<small>No vocals</small></span>
+        <label class="switch" style="margin:0"><input type="checkbox" id="instrumental" aria-label="Instrumental"><i></i></label>
+      </div>
+
+      <label for="model">Model</label>
+      <select id="model">
+        <option value="V6">V6 — best quality (recommended)</option>
+        <option value="V6_MINI">V6 Mini — faster</option>
+        <option value="V6_WILD">V6 Wild — bolder, more experimental</option>
+      </select>
+
+      <details class="adv hidden" id="advanced">
+        <summary>Advanced controls</summary>
+        <label for="duration" class="range-head">Length <output id="duration-out">2:00</output></label>
+        <input type="range" id="duration" min="10" max="360" step="5" value="120">
+
+        <div class="row">
+          <div id="gender-wrap">
+            <label for="vocalGender">Voice</label>
+            <select id="vocalGender">
+              <option value="">Any</option>
+              <option value="f">Female</option>
+              <option value="m">Male</option>
+            </select>
+          </div>
+          <div>
+            <label for="variety">Variety</label>
+            <select id="variety">
+              <option value="0">Off — exact style</option>
+              <option value="1" selected>Normal</option>
+              <option value="2">High</option>
+              <option value="3">Extra</option>
+              <option value="4">Max</option>
+            </select>
+          </div>
+        </div>
+
+        <label for="negativeTags">Avoid <span class="hint">(styles to exclude)</span></label>
+        <input type="text" id="negativeTags" maxlength="1000" placeholder="heavy metal, screaming">
+
+        <label for="styleWeight" class="range-head">Style strength <output id="styleWeight-out">0.65</output></label>
+        <input type="range" id="styleWeight" min="0" max="1" step="0.05" value="0.65">
+
+        <label for="weirdness" class="range-head">Creativity <output id="weirdness-out">0.50</output></label>
+        <input type="range" id="weirdness" min="0" max="1" step="0.05" value="0.5">
+      </details>
+
+      <button type="submit" class="btn btn-primary" id="generate-btn">Generate</button>
+      <div class="msg" id="form-msg" role="status"></div>
+    </form>
+  </section>
+
+  <section aria-labelledby="tracks-h">
+    <div class="list-head">
+      <h2 id="tracks-h" style="margin:0">Your tracks</h2>
+      <button class="link hidden" id="clear-btn">Clear history</button>
+    </div>
+    <div id="jobs"></div>
+    <div class="empty" id="empty">Songs you generate show up here. Each request makes two versions and usually takes 1–3 minutes.</div>
+  </section>
+</main>
+
+<footer>Tracks are hosted by Suno API for 14 days. Download anything you want to keep.</footer>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const STORE = "tunesmith.jobs.v1";
+  const PASS = "tunesmith.passcode";
+  const POLL_MS = 6000;
+  const MAX_POLL_MS = 15 * 60 * 1000;
+  const FAILED = ["CREATE_TASK_FAILED", "GENERATE_AUDIO_FAILED", "CALLBACK_EXCEPTION", "SENSITIVE_WORD_ERROR"];
+  const STATUS_TEXT = {
+    SUBMITTED: "Submitted", PENDING: "Queued", TEXT_SUCCESS: "Writing music…",
+    FIRST_SUCCESS: "First version ready — finishing the second…", SUCCESS: "Done",
+    CREATE_TASK_FAILED: "Could not start the task", GENERATE_AUDIO_FAILED: "Audio generation failed",
+    CALLBACK_EXCEPTION: "Generation error", SENSITIVE_WORD_ERROR: "Blocked: the prompt or lyrics contain restricted words",
+    TIMEOUT: "Stopped checking — try refreshing later",
+  };
+  const STYLES = ["Pop", "Hip-hop", "R&B", "Rock", "Lo-fi chill", "EDM", "Acoustic folk", "Jazz", "Latin", "Country", "Cinematic", "Piano ballad"];
+
+  let mode = "simple";
+  let jobs = load();
+  const timers = {};
+
+  // ---------- storage ----------
+  function load() { try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; } }
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(jobs.slice(0, 50))); } catch {} }
+  function getPass() { try { return localStorage.getItem(PASS) || ""; } catch { return ""; } }
+  function setPass(v) { try { localStorage.setItem(PASS, v); } catch {} }
+
+  // ---------- API ----------
+  async function api(action, { body, params } = {}, retried = false) {
+    const qs = new URLSearchParams({ action, ...(params || {}) });
+    const res = await fetch(`/api/suno?${qs}`, {
+      method: body ? "POST" : "GET",
+      headers: { "Content-Type": "application/json", "x-app-passcode": getPass() },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    let data;
+    try { data = await res.json(); } catch { throw new Error(`Server error (${res.status}). Is the Netlify function deployed?`); }
+    if (res.status === 401 && data.msg === "Passcode required." && !retried) {
+      const p = prompt("Enter the app passcode:");
+      if (p) { setPass(p.trim()); return api(action, { body, params }, true); }
+    }
+    if (data.code !== 200) throw new Error(friendlyError(data));
+    return data.data;
+  }
+  function friendlyError(d) {
+    const map = {
+      401: "Unauthorized — check the API key or passcode.", 405: "Rate limit hit. Wait a moment and try again.",
+      413: "Prompt or lyrics are too long.", 429: "Out of credits. Top up your Suno API account.",
+      430: "Too many requests. Try again in a minute.", 455: "Suno API is under maintenance. Try again later.",
+    };
+    return d.msg && d.code === 400 ? d.msg : (map[d.code] || d.msg || "Something went wrong.");
+  }
+
+  async function refreshCredits() {
+    try { const c = await api("credits"); $("credits").innerHTML = `Credits: <b>${Number(c).toLocaleString()}</b>`; }
+    catch { $("credits").innerHTML = `Credits: <b>—</b>`; }
+  }
+
+  // ---------- form ----------
+  function setMode(m) {
+    mode = m;
+    $("tab-simple").setAttribute("aria-selected", m === "simple");
+    $("tab-custom").setAttribute("aria-selected", m === "custom");
+    $("simple-fields").classList.toggle("hidden", m !== "simple");
+    $("custom-fields").classList.toggle("hidden", m !== "custom");
+    $("advanced").classList.toggle("hidden", m !== "custom");
+    syncInstrumental();
+    hideMsg();
+  }
+  function syncInstrumental() {
+    const inst = $("instrumental").checked;
+    $("lyrics-block").classList.toggle("hidden", inst);
+    $("gender-wrap").classList.toggle("hidden", inst);
+  }
+  function showMsg(text, kind = "err") { const m = $("form-msg"); m.textContent = text; m.className = `msg show ${kind}`; }
+  function hideMsg() { $("form-msg").className = "msg"; }
+
+  function collect() {
+    const instrumental = $("instrumental").checked;
+    const base = { customMode: mode === "custom", instrumental, model: $("model").value, style: $("style").value.trim() };
+    if (mode === "simple") {
+      const prompt = $("prompt").value.trim();
+      if (!base.style) throw new Error("Add a style — type one or tap a genre below the Style box.");
+      return { ...base, prompt };
+    }
+    const lyrics = $("lyrics").value.trim();
+    if (!instrumental && !lyrics) throw new Error("Add lyrics, use “Write lyrics”, or switch on Instrumental.");
+    if (instrumental && !base.style) throw new Error("Add a style for an instrumental track.");
+    return {
+      ...base, title: $("title").value.trim(), lyrics,
+      negativeTags: $("negativeTags").value.trim(), vocalGender: $("vocalGender").value,
+      variety: Number($("variety").value), duration: Number($("duration").value),
+      styleWeight: Number($("styleWeight").value), weirdnessConstraint: Number($("weirdness").value),
+    };
+  }
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    hideMsg();
+    let input;
+    try { input = collect(); } catch (err) { return showMsg(err.message); }
+    const btn = $("generate-btn");
+    btn.disabled = true; btn.textContent = "Submitting…";
+    try {
+      const { taskId } = await api("generate", { body: input });
+      const label = input.title || input.prompt || input.style || "Untitled";
+      const job = { taskId, label, mode, model: input.model, instrumental: input.instrumental, createdAt: Date.now(), status: "SUBMITTED", tracks: [] };
+      jobs.unshift(job); save(); render(); poll(job);
+      showMsg("Started. Your songs will appear on the right.", "ok");
+      refreshCredits();
+    } catch (err) {
+      showMsg(err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = "Generate";
+    }
+  }
+
+  async function onWriteLyrics() {
+    const idea = $("lyrics-idea").value.trim();
+    if (!idea) return showMsg("Describe what the lyrics should be about.");
+    const btn = $("lyrics-btn");
+    btn.disabled = true; btn.textContent = "Writing…"; hideMsg();
+    try {
+      const { taskId } = await api("lyrics", { body: { prompt: idea } });
+      const started = Date.now();
+      while (Date.now() - started < 3 * 60 * 1000) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const d = await api("lyricsStatus", { params: { taskId } });
+        if (d.status === "SUCCESS") {
+          const first = d.response?.data?.find((x) => x.text) || {};
+          $("lyrics").value = first.text || "";
+          if (first.title && !$("title").value) $("title").value = first.title;
+          updateCounts();
+          showMsg("Lyrics added. Edit them however you like.", "ok");
+          refreshCredits();
+          return;
+        }
+        if (/FAIL|ERROR/.test(d.status || "")) throw new Error(d.errorMessage || STATUS_TEXT[d.status] || "Lyrics generation failed.");
+      }
+      throw new Error("Lyrics took too long. Try again.");
+    } catch (err) {
+      showMsg(err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = "Write lyrics";
+    }
+  }
+
+  // ---------- polling ----------
+  function poll(job) {
+    if (timers[job.taskId]) return;
+    const tick = async () => {
+      try {
+        const d = await api("status", { params: { taskId: job.taskId } });
+        job.status = d.status || job.status;
+        job.error = d.errorMessage || "";
+        const tracks = d.response?.sunoData;
+        if (Array.isArray(tracks) && tracks.length) job.tracks = tracks.map(pickTrack);
+      } catch (err) {
+        job.error = err.message;
+      }
+      if (job.status === "SUCCESS" || FAILED.includes(job.status)) {
+        delete timers[job.taskId]; save(); render();
+        if (job.status === "SUCCESS") refreshCredits();
+        return;
+      }
+      if (Date.now() - job.createdAt > MAX_POLL_MS) {
+        job.status = "TIMEOUT"; delete timers[job.taskId]; save(); render(); return;
+      }
+      save(); render();
+      timers[job.taskId] = setTimeout(tick, POLL_MS);
+    };
+    timers[job.taskId] = setTimeout(tick, 1500);
+  }
+  function pickTrack(t) {
+    return {
+      id: t.id, title: t.title, tags: t.tags, duration: t.duration, lyrics: t.prompt,
+      image: t.imageUrl || t.image_url || t.sourceImageUrl || t.source_image_url || "",
+      audio: t.audioUrl || t.audio_url || t.sourceAudioUrl || t.source_audio_url || "",
+      stream: t.streamAudioUrl || t.stream_audio_url || t.sourceStreamAudioUrl || t.source_stream_audio_url || "",
+    };
+  }
+
+  // ---------- render ----------
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmtTime = (s) => { s = Math.round(Number(s) || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+  const safeUrl = (u) => (/^https?:\/\//i.test(u || "") ? u : "");
+
+  function render() {
+    const wrap = $("jobs");
+    $("empty").classList.toggle("hidden", jobs.length > 0);
+    $("clear-btn").classList.toggle("hidden", jobs.length === 0);
+
+    // Keep existing audio elements playing: only rebuild cards whose data changed.
+    const seen = new Set();
+    jobs.forEach((job, i) => {
+      seen.add(job.taskId);
+      const sig = JSON.stringify([job.status, job.error, job.tracks]);
+      let el = wrap.querySelector(`[data-task="${CSS.escape(job.taskId)}"]`);
+      if (!el) { el = document.createElement("article"); el.className = "job"; el.dataset.task = job.taskId; }
+      if (el.dataset.sig !== sig) {
+        const playing = [...el.querySelectorAll("audio")].some((a) => !a.paused);
+        if (!playing || job.status === "SUCCESS") { el.innerHTML = jobHTML(job); el.dataset.sig = sig; }
+      }
+      if (wrap.children[i] !== el) wrap.insertBefore(el, wrap.children[i] || null);
+    });
+    [...wrap.children].forEach((el) => { if (!seen.has(el.dataset.task)) el.remove(); });
+  }
+
+  function jobHTML(job) {
+    const failed = FAILED.includes(job.status) || job.status === "TIMEOUT";
+    const done = job.status === "SUCCESS";
+    const cls = failed ? "failed" : done ? "done" : "pending";
+    const text = STATUS_TEXT[job.status] || job.status;
+    const when = new Date(job.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const tracks = (job.tracks || []).filter((t) => t.audio || t.stream);
+    return `
+      <div class="job-head">
+        <div class="job-title" title="${esc(job.label)}">${esc(job.label)}</div>
+        <div class="job-meta">${esc(job.model)} · ${esc(when)}</div>
+      </div>
+      <div class="status ${cls}">${cls === "pending" ? '<span class="spinner"></span>' : ""}${esc(text)}</div>
+      ${failed && job.error ? `<div class="tags" style="white-space:normal">${esc(job.error)}</div>` : ""}
+      ${tracks.length ? `<div class="tracks">${tracks.map((t) => trackHTML(t, job.instrumental)).join("")}</div>` : ""}`;
+  }
+
+  function trackHTML(t, instrumental) {
+    const src = safeUrl(t.audio) || safeUrl(t.stream);
+    const dl = safeUrl(t.audio);
+    const img = safeUrl(t.image);
+    const lyrics = !instrumental && t.lyrics ? `<details><summary>Lyrics</summary><pre>${esc(t.lyrics)}</pre></details>` : "";
+    return `
+      <div class="track">
+        ${img ? `<img class="cover" src="${esc(img)}" alt="" loading="lazy">` : `<div class="cover"></div>`}
+        <div>
+          <h3>${esc(t.title || "Untitled")}</h3>
+          <div class="tags">${esc(t.tags || "")}${t.duration ? ` · ${fmtTime(t.duration)}` : ""}</div>
+          <audio controls preload="none" src="${esc(src)}"></audio>
+          <div class="track-actions">
+            ${dl ? `<a href="${esc(dl)}" target="_blank" rel="noopener" download>Download MP3</a>` : `<span class="tags">Streaming preview — MP3 on the way</span>`}
+            ${!instrumental && t.lyrics ? `<button type="button" data-reuse="${esc(t.lyrics)}" data-title="${esc(t.title || "")}">Reuse lyrics</button>` : ""}
+          </div>
+        </div>
+        ${lyrics}
+      </div>`;
+  }
+
+  function updateCounts() {
+    document.querySelectorAll("[data-count]").forEach((el) => { el.textContent = $(el.dataset.count).value.length; });
+  }
+
+  // ---------- wire up ----------
+  STYLES.forEach((s) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = s;
+    b.onclick = () => {
+      const cur = $("style").value.trim();
+      const parts = cur ? cur.split(",").map((x) => x.trim().toLowerCase()) : [];
+      if (!parts.includes(s.toLowerCase())) $("style").value = cur ? `${cur}, ${s.toLowerCase()}` : s.toLowerCase();
+    };
+    $("style-chips").appendChild(b);
+  });
+
+  $("tab-simple").onclick = () => setMode("simple");
+  $("tab-custom").onclick = () => setMode("custom");
+  $("instrumental").onchange = syncInstrumental;
+  $("form").onsubmit = onSubmit;
+  $("lyrics-btn").onclick = onWriteLyrics;
+  $("prompt").oninput = $("lyrics").oninput = updateCounts;
+  $("duration").oninput = () => { $("duration-out").textContent = fmtTime($("duration").value); };
+  $("styleWeight").oninput = () => { $("styleWeight-out").textContent = Number($("styleWeight").value).toFixed(2); };
+  $("weirdness").oninput = () => { $("weirdness-out").textContent = Number($("weirdness").value).toFixed(2); };
+  $("clear-btn").onclick = () => {
+    if (!confirm("Remove all tracks from this list? Files you haven't downloaded will be hard to find again.")) return;
+    Object.values(timers).forEach(clearTimeout);
+    Object.keys(timers).forEach((k) => delete timers[k]);
+    jobs = []; save(); render();
+  };
+  $("jobs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-reuse]");
+    if (!b) return;
+    setMode("custom");
+    $("instrumental").checked = false; syncInstrumental();
+    $("lyrics").value = b.dataset.reuse;
+    if (b.dataset.title) $("title").value = b.dataset.title;
+    updateCounts();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  // Only one track plays at a time.
+  document.addEventListener("play", (e) => {
+    document.querySelectorAll("audio").forEach((a) => { if (a !== e.target) a.pause(); });
+  }, true);
+
+  render();
+  refreshCredits();
+  jobs.filter((j) => !["SUCCESS", "TIMEOUT", ...FAILED].includes(j.status)).forEach(poll);
+})();
+</script>
+</body>
+</html>
