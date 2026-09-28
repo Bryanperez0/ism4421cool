@@ -92,6 +92,14 @@
   .track details { grid-column: 1 / -1; font-size: 13px; }
   .track details summary { cursor: pointer; color: var(--muted); }
   .track pre { white-space: pre-wrap; font-family: inherit; margin: 8px 0 0; max-height: 260px; overflow: auto; }
+  .account { display: flex; align-items: center; gap: 10px; }
+  .keybar { max-width: 1120px; margin: 0 auto; padding: 8px 16px 0; }
+  .keybar .panel { border-color: var(--accent); }
+  .keybar p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  .keybar a { color: var(--accent); }
+  .key-row { display: flex; gap: 8px; }
+  .key-row input { flex: 1; min-width: 0; }
+  @media (max-width: 520px) { .key-row { flex-direction: column; } }
   footer { max-width: 1120px; margin: 0 auto; padding: 0 16px 32px; font-size: 12px; color: var(--muted); }
 </style>
 </head>
@@ -101,8 +109,23 @@
     <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M12 22a3 3 0 1 1-2-2.83V9l12-2v11a3 3 0 1 1-2-2.83V10.4l-8 1.33z" fill="var(--accent-ink)"/></svg>
     Tunesmith
   </div>
-  <div class="credits" id="credits" title="Suno API credits remaining">Credits: <b>…</b></div>
+  <div class="account hidden" id="account">
+    <div class="credits" id="credits" title="Suno API credits remaining">Credits: <b>…</b></div>
+    <button class="link" id="disconnect-btn">Change key</button>
+  </div>
 </header>
+
+<section class="keybar" id="keybar" aria-labelledby="key-h">
+  <form class="panel" id="key-form" autocomplete="off" novalidate>
+    <h2 id="key-h">Connect your Suno API key</h2>
+    <p>Get a key at <a href="https://sunoapi.org/api-key" target="_blank" rel="noopener">sunoapi.org/api-key</a>. It stays in this tab's memory only. Refreshing or closing the page clears it, and it is never saved on this site or in your browser.</p>
+    <div class="key-row">
+      <input type="password" id="api-key" placeholder="Paste your API key" aria-label="Suno API key" autocomplete="off" spellcheck="false">
+      <button type="submit" class="btn btn-secondary" id="key-btn">Connect</button>
+    </div>
+    <div class="msg" id="key-msg" role="status"></div>
+  </form>
+</section>
 
 <main>
   <section class="panel" aria-labelledby="create-h">
@@ -207,7 +230,6 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const STORE = "tunesmith.jobs.v1";
-  const PASS = "tunesmith.passcode";
   const POLL_MS = 6000;
   const MAX_POLL_MS = 15 * 60 * 1000;
   const FAILED = ["CREATE_TASK_FAILED", "GENERATE_AUDIO_FAILED", "CALLBACK_EXCEPTION", "SENSITIVE_WORD_ERROR"];
@@ -221,44 +243,82 @@
   const STYLES = ["Pop", "Hip-hop", "R&B", "Rock", "Lo-fi chill", "EDM", "Acoustic folk", "Jazz", "Latin", "Country", "Cinematic", "Piano ballad"];
 
   let mode = "simple";
+  let apiKey = ""; // held in memory only; never written to storage
   let jobs = load();
   const timers = {};
 
   // ---------- storage ----------
   function load() { try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; } }
   function save() { try { localStorage.setItem(STORE, JSON.stringify(jobs.slice(0, 50))); } catch {} }
-  function getPass() { try { return localStorage.getItem(PASS) || ""; } catch { return ""; } }
-  function setPass(v) { try { localStorage.setItem(PASS, v); } catch {} }
 
   // ---------- API ----------
-  async function api(action, { body, params } = {}, retried = false) {
+  async function api(action, { body, params } = {}) {
+    if (!apiKey) throw new Error("Connect your Suno API key first.");
     const qs = new URLSearchParams({ action, ...(params || {}) });
     const res = await fetch(`/api/suno?${qs}`, {
       method: body ? "POST" : "GET",
-      headers: { "Content-Type": "application/json", "x-app-passcode": getPass() },
+      headers: { "Content-Type": "application/json", "x-suno-key": apiKey },
       body: body ? JSON.stringify(body) : undefined,
     });
     let data;
     try { data = await res.json(); } catch { throw new Error(`Server error (${res.status}). Is the Netlify function deployed?`); }
-    if (res.status === 401 && data.msg === "Passcode required." && !retried) {
-      const p = prompt("Enter the app passcode:");
-      if (p) { setPass(p.trim()); return api(action, { body, params }, true); }
-    }
     if (data.code !== 200) throw new Error(friendlyError(data));
     return data.data;
   }
   function friendlyError(d) {
     const map = {
-      401: "Unauthorized — check the API key or passcode.", 405: "Rate limit hit. Wait a moment and try again.",
+      401: "Suno rejected the API key. Check it and connect again.", 405: "Rate limit hit. Wait a moment and try again.",
       413: "Prompt or lyrics are too long.", 429: "Out of credits. Top up your Suno API account.",
       430: "Too many requests. Try again in a minute.", 455: "Suno API is under maintenance. Try again later.",
     };
     return d.msg && d.code === 400 ? d.msg : (map[d.code] || d.msg || "Something went wrong.");
   }
 
+  function showCredits(c) { $("credits").innerHTML = `Credits: <b>${Number(c).toLocaleString()}</b>`; }
   async function refreshCredits() {
-    try { const c = await api("credits"); $("credits").innerHTML = `Credits: <b>${Number(c).toLocaleString()}</b>`; }
-    catch { $("credits").innerHTML = `Credits: <b>—</b>`; }
+    try { showCredits(await api("credits")); } catch { $("credits").innerHTML = `Credits: <b>—</b>`; }
+  }
+
+  // ---------- API key ----------
+  function setConnected(on) {
+    $("keybar").classList.toggle("hidden", on);
+    $("account").classList.toggle("hidden", !on);
+  }
+  async function onConnect(e) {
+    e.preventDefault();
+    const input = $("api-key");
+    const key = input.value.trim();
+    const msg = $("key-msg");
+    msg.className = "msg";
+    if (!key) { msg.textContent = "Paste your API key."; msg.className = "msg show err"; return; }
+    const btn = $("key-btn");
+    btn.disabled = true; btn.textContent = "Checking…";
+    apiKey = key;
+    try {
+      showCredits(await api("credits"));
+      input.value = "";
+      setConnected(true);
+      hideMsg();
+      resumePending();
+    } catch (err) {
+      apiKey = "";
+      msg.textContent = err.message; msg.className = "msg show err";
+    } finally {
+      btn.disabled = false; btn.textContent = "Connect";
+    }
+  }
+  function disconnect() {
+    apiKey = "";
+    stopPolling();
+    setConnected(false);
+    $("api-key").focus();
+  }
+  function stopPolling() {
+    Object.values(timers).forEach(clearTimeout);
+    Object.keys(timers).forEach((k) => delete timers[k]);
+  }
+  function resumePending() {
+    jobs.filter((j) => !["SUCCESS", "TIMEOUT", ...FAILED].includes(j.status)).forEach(poll);
   }
 
   // ---------- form ----------
@@ -302,6 +362,7 @@
   async function onSubmit(e) {
     e.preventDefault();
     hideMsg();
+    if (!apiKey) { showMsg("Connect your Suno API key at the top of the page first."); $("api-key").focus(); return; }
     let input;
     try { input = collect(); } catch (err) { return showMsg(err.message); }
     const btn = $("generate-btn");
@@ -352,7 +413,7 @@
 
   // ---------- polling ----------
   function poll(job) {
-    if (timers[job.taskId]) return;
+    if (timers[job.taskId] || !apiKey) return;
     const tick = async () => {
       try {
         const d = await api("status", { params: { taskId: job.taskId } });
@@ -362,6 +423,7 @@
         if (Array.isArray(tracks) && tracks.length) job.tracks = tracks.map(pickTrack);
       } catch (err) {
         job.error = err.message;
+        if (!apiKey) { delete timers[job.taskId]; return; }
       }
       if (job.status === "SUCCESS" || FAILED.includes(job.status)) {
         delete timers[job.taskId]; save(); render();
@@ -476,8 +538,7 @@
   $("weirdness").oninput = () => { $("weirdness-out").textContent = Number($("weirdness").value).toFixed(2); };
   $("clear-btn").onclick = () => {
     if (!confirm("Remove all tracks from this list? Files you haven't downloaded will be hard to find again.")) return;
-    Object.values(timers).forEach(clearTimeout);
-    Object.keys(timers).forEach((k) => delete timers[k]);
+    stopPolling();
     jobs = []; save(); render();
   };
   $("jobs").addEventListener("click", (e) => {
@@ -495,9 +556,11 @@
     document.querySelectorAll("audio").forEach((a) => { if (a !== e.target) a.pause(); });
   }, true);
 
+  $("key-form").onsubmit = onConnect;
+  $("disconnect-btn").onclick = disconnect;
+
   render();
-  refreshCredits();
-  jobs.filter((j) => !["SUCCESS", "TIMEOUT", ...FAILED].includes(j.status)).forEach(poll);
+  setConnected(false);
 })();
 </script>
 </body>

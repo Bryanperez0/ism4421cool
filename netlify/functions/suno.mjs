@@ -1,5 +1,6 @@
-// Server-side proxy for the Suno API (https://docs.sunoapi.org).
-// The API key lives in the SUNO_API_KEY environment variable and never reaches the browser.
+// Pass-through proxy for the Suno API (https://docs.sunoapi.org).
+// The user's API key arrives in the x-suno-key header on each request and is
+// forwarded to Suno. It is never stored or logged here.
 
 const BASE = "https://api.sunoapi.org/api/v1";
 const MODELS = ["V6", "V6_MINI", "V6_WILD"];
@@ -70,13 +71,8 @@ function buildGenerateBody(input, callBackUrl) {
 }
 
 export default async (req) => {
-  const key = process.env.SUNO_API_KEY;
-  if (!key) return json(500, { code: 500, msg: "SUNO_API_KEY is not set on the server." });
-
-  const passcode = process.env.APP_PASSCODE;
-  if (passcode && req.headers.get("x-app-passcode") !== passcode) {
-    return json(401, { code: 401, msg: "Passcode required." });
-  }
+  const key = str(req.headers.get("x-suno-key"), 200);
+  if (!key) return json(401, { code: 401, msg: "API key required." });
 
   const url = new URL(req.url);
   const action = url.searchParams.get("action");
