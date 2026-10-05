@@ -35,7 +35,7 @@
   .tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
   label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 6px; }
   label .hint { font-weight: 400; color: var(--muted); }
-  input[type=text], textarea, select { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  input[type=text], input[type=email], input[type=password], textarea, select { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
   textarea { resize: vertical; min-height: 90px; }
   #lyrics { min-height: 170px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
   input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -100,6 +100,12 @@
   .key-row { display: flex; gap: 8px; }
   .key-row input { flex: 1; min-width: 0; }
   @media (max-width: 520px) { .key-row { flex-direction: column; } }
+  .authbar { max-width: 440px; margin: 24px auto 48px; padding: 0 16px; }
+  .authbar p { margin: 0 0 4px; color: var(--muted); font-size: 13px; }
+  .auth-links { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; }
+  .header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+  .user { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); min-width: 0; }
+  .user span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
   footer { max-width: 1120px; margin: 0 auto; padding: 0 16px 32px; font-size: 12px; color: var(--muted); }
 </style>
 </head>
@@ -109,13 +115,40 @@
     <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M12 22a3 3 0 1 1-2-2.83V9l12-2v11a3 3 0 1 1-2-2.83V10.4l-8 1.33z" fill="var(--accent-ink)"/></svg>
     Tunesmith
   </div>
-  <div class="account hidden" id="account">
-    <div class="credits" id="credits" title="Suno API credits remaining">Credits: <b>…</b></div>
-    <button class="link" id="disconnect-btn">Change key</button>
+  <div class="header-right">
+    <div class="account hidden" id="account">
+      <div class="credits" id="credits" title="Suno API credits remaining">Credits: <b>…</b></div>
+      <button class="link" id="disconnect-btn">Change key</button>
+    </div>
+    <div class="user hidden" id="user">
+      <span id="user-email"></span>
+      <button class="link" id="signout-btn">Sign out</button>
+    </div>
   </div>
 </header>
 
-<section class="keybar" id="keybar" aria-labelledby="key-h">
+<section class="authbar hidden" id="authbar" aria-labelledby="auth-h">
+  <form class="panel" id="auth-form" novalidate>
+    <h2 id="auth-h">Sign in</h2>
+    <p id="auth-sub">Sign in with your email to use Tunesmith.</p>
+    <div id="email-wrap">
+      <label for="auth-email">Email</label>
+      <input type="email" id="auth-email" autocomplete="email" placeholder="you@example.com">
+    </div>
+    <div id="password-wrap">
+      <label for="auth-password">Password</label>
+      <input type="password" id="auth-password" autocomplete="current-password" placeholder="At least 6 characters">
+    </div>
+    <button type="submit" class="btn btn-primary" id="auth-btn">Sign in</button>
+    <div class="msg" id="auth-msg" role="status"></div>
+    <div class="auth-links">
+      <button type="button" class="link" id="auth-switch">Create an account</button>
+      <button type="button" class="link" id="auth-forgot">Forgot password?</button>
+    </div>
+  </form>
+</section>
+
+<section class="keybar hidden" id="keybar" aria-labelledby="key-h">
   <form class="panel" id="key-form" autocomplete="off" novalidate>
     <h2 id="key-h">Connect your Suno API key</h2>
     <p>Get a key at <a href="https://sunoapi.org/api-key" target="_blank" rel="noopener">sunoapi.org/api-key</a>. It stays in this tab's memory only. Refreshing or closing the page clears it, and it is never saved on this site or in your browser.</p>
@@ -127,7 +160,7 @@
   </form>
 </section>
 
-<main>
+<main class="hidden" id="app">
   <section class="panel" aria-labelledby="create-h">
     <h2 id="create-h">Create a song</h2>
     <div class="tabs" role="tablist">
@@ -224,12 +257,15 @@
   </section>
 </main>
 
-<footer>Tracks are hosted by Suno API for 14 days. Download anything you want to keep.</footer>
+<footer class="hidden" id="footer">Tracks are hosted by Suno API for 14 days. Download anything you want to keep.</footer>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const STORE = "tunesmith.jobs.v1";
+  const SUPABASE_URL = "https://gtozixctuyvzxoliodfq.supabase.co";
+  const SUPABASE_KEY = "sb_publishable__bxP3FG4QeyL_ylMUBsNZg_SnBL17Co"; // publishable key: safe to ship to the browser
+  const LEGACY_STORE = "tunesmith.jobs.v1";
   const POLL_MS = 6000;
   const MAX_POLL_MS = 15 * 60 * 1000;
   const FAILED = ["CREATE_TASK_FAILED", "GENERATE_AUDIO_FAILED", "CALLBACK_EXCEPTION", "SENSITIVE_WORD_ERROR"];
@@ -244,20 +280,36 @@
 
   let mode = "simple";
   let apiKey = ""; // held in memory only; never written to storage
-  let jobs = load();
+  let user = null; // signed-in Supabase user
+  let authMode = "signin"; // signin | signup | forgot | reset
+  let jobs = [];
   const timers = {};
+  const sb = window.supabase?.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  // ---------- storage ----------
-  function load() { try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; } }
-  function save() { try { localStorage.setItem(STORE, JSON.stringify(jobs.slice(0, 50))); } catch {} }
+  // ---------- storage (track history is kept per user) ----------
+  const storeKey = () => `tunesmith.jobs.v1.${user?.id}`;
+  function load() {
+    try {
+      let raw = localStorage.getItem(storeKey());
+      // One-time move of history saved before sign-in existed.
+      if (!raw && (raw = localStorage.getItem(LEGACY_STORE))) {
+        localStorage.setItem(storeKey(), raw);
+        localStorage.removeItem(LEGACY_STORE);
+      }
+      return JSON.parse(raw) || [];
+    } catch { return []; }
+  }
+  function save() { if (!user) return; try { localStorage.setItem(storeKey(), JSON.stringify(jobs.slice(0, 50))); } catch {} }
 
   // ---------- API ----------
   async function api(action, { body, params } = {}) {
     if (!apiKey) throw new Error("Connect your Suno API key first.");
+    const { data: { session } } = await sb.auth.getSession(); // refreshes the token if it expired
+    if (!session) throw new Error("Your session ended. Sign in again.");
     const qs = new URLSearchParams({ action, ...(params || {}) });
     const res = await fetch(`/api/suno?${qs}`, {
       method: body ? "POST" : "GET",
-      headers: { "Content-Type": "application/json", "x-suno-key": apiKey },
+      headers: { "Content-Type": "application/json", "x-suno-key": apiKey, Authorization: `Bearer ${session.access_token}` },
       body: body ? JSON.stringify(body) : undefined,
     });
     let data;
@@ -279,11 +331,90 @@
     try { showCredits(await api("credits")); } catch { $("credits").innerHTML = `Credits: <b>—</b>`; }
   }
 
-  // ---------- API key ----------
-  function setConnected(on) {
-    $("keybar").classList.toggle("hidden", on);
-    $("account").classList.toggle("hidden", !on);
+  // ---------- view ----------
+  function updateView() {
+    const signedIn = !!user && authMode !== "reset";
+    $("authbar").classList.toggle("hidden", signedIn);
+    $("app").classList.toggle("hidden", !signedIn);
+    $("footer").classList.toggle("hidden", !signedIn);
+    $("user").classList.toggle("hidden", !user);
+    $("user-email").textContent = user?.email || "";
+    $("keybar").classList.toggle("hidden", !signedIn || !!apiKey);
+    $("account").classList.toggle("hidden", !signedIn || !apiKey);
   }
+
+  // ---------- sign in ----------
+  const AUTH_VIEWS = {
+    signin: { h: "Sign in", sub: "Sign in with your email to use Tunesmith.", btn: "Sign in", sw: "Create an account", pw: true, email: true },
+    signup: { h: "Create an account", sub: "Use your email and a password of at least 6 characters.", btn: "Create account", sw: "I already have an account", pw: true, email: true },
+    forgot: { h: "Reset your password", sub: "We'll email you a link to set a new password.", btn: "Send reset link", sw: "Back to sign in", pw: false, email: true },
+    reset: { h: "Set a new password", sub: "Choose a new password of at least 6 characters.", btn: "Save password", sw: "", pw: true, email: false },
+  };
+  function setAuthMode(m) {
+    authMode = m;
+    const v = AUTH_VIEWS[m];
+    $("auth-h").textContent = v.h;
+    $("auth-sub").textContent = v.sub;
+    $("auth-btn").textContent = v.btn;
+    $("auth-switch").textContent = v.sw;
+    $("auth-switch").classList.toggle("hidden", !v.sw);
+    $("auth-forgot").classList.toggle("hidden", m !== "signin");
+    $("password-wrap").classList.toggle("hidden", !v.pw);
+    $("email-wrap").classList.toggle("hidden", !v.email);
+    $("auth-password").autocomplete = m === "signin" ? "current-password" : "new-password";
+    $("auth-password").value = "";
+    $("auth-msg").className = "msg";
+    updateView();
+  }
+  function authMsg(text, kind = "err") { const m = $("auth-msg"); m.textContent = text; m.className = `msg show ${kind}`; }
+
+  async function onAuthSubmit(e) {
+    e.preventDefault();
+    const email = $("auth-email").value.trim();
+    const password = $("auth-password").value;
+    const v = AUTH_VIEWS[authMode];
+    if (v.email && !/^\S+@\S+\.\S+$/.test(email)) return authMsg("Enter a valid email address.");
+    if (v.pw && password.length < 6) return authMsg("Password must be at least 6 characters.");
+    const btn = $("auth-btn");
+    btn.disabled = true; btn.textContent = "Please wait…";
+    const redirectTo = location.origin + location.pathname;
+    try {
+      if (authMode === "signin") {
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      } else if (authMode === "signup") {
+        const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } });
+        if (error) throw error;
+        if (!data.session) { setAuthMode("signin"); authMsg("Check your email for a confirmation link, then sign in.", "ok"); }
+      } else if (authMode === "forgot") {
+        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
+        if (error) throw error;
+        authMsg("If that email has an account, a reset link is on its way.", "ok");
+      } else if (authMode === "reset") {
+        const { error } = await sb.auth.updateUser({ password });
+        if (error) throw error;
+        setAuthMode("signin");
+      }
+    } catch (err) {
+      authMsg(err.message || "Something went wrong. Try again.");
+    } finally {
+      btn.disabled = false; btn.textContent = AUTH_VIEWS[authMode].btn;
+    }
+  }
+
+  function onSession(next) {
+    const changed = (next?.id || null) !== (user?.id || null);
+    user = next;
+    if (changed) {
+      apiKey = "";
+      stopPolling();
+      jobs = user ? load() : [];
+      render();
+    }
+    updateView();
+  }
+
+  // ---------- API key ----------
   async function onConnect(e) {
     e.preventDefault();
     const input = $("api-key");
@@ -297,7 +428,7 @@
     try {
       showCredits(await api("credits"));
       input.value = "";
-      setConnected(true);
+      updateView();
       hideMsg();
       resumePending();
     } catch (err) {
@@ -310,7 +441,7 @@
   function disconnect() {
     apiKey = "";
     stopPolling();
-    setConnected(false);
+    updateView();
     $("api-key").focus();
   }
   function stopPolling() {
@@ -558,9 +689,23 @@
 
   $("key-form").onsubmit = onConnect;
   $("disconnect-btn").onclick = disconnect;
+  $("auth-form").onsubmit = onAuthSubmit;
+  $("auth-switch").onclick = () => setAuthMode(authMode === "signin" ? "signup" : "signin");
+  $("auth-forgot").onclick = () => setAuthMode("forgot");
+  $("signout-btn").onclick = async () => { await sb.auth.signOut(); setAuthMode("signin"); };
 
-  render();
-  setConnected(false);
+  if (!sb) {
+    $("authbar").classList.remove("hidden");
+    authMsg("Could not load the sign-in library. Check your connection and refresh.");
+    $("auth-btn").disabled = true;
+    return;
+  }
+  setAuthMode("signin");
+  sb.auth.onAuthStateChange((event, session) => {
+    // Runs on page load too (INITIAL_SESSION), so a saved session signs the user straight in.
+    if (event === "PASSWORD_RECOVERY") setAuthMode("reset");
+    setTimeout(() => onSession(session?.user || null), 0);
+  });
 })();
 </script>
 </body>

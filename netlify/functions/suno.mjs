@@ -1,8 +1,11 @@
 // Pass-through proxy for the Suno API (https://docs.sunoapi.org).
 // The user's API key arrives in the x-suno-key header on each request and is
 // forwarded to Suno. It is never stored or logged here.
+// Every request must also carry a Supabase session token (signed-in user).
 
 const BASE = "https://api.sunoapi.org/api/v1";
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://gtozixctuyvzxoliodfq.supabase.co";
+const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || "sb_publishable__bxP3FG4QeyL_ylMUBsNZg_SnBL17Co";
 const MODELS = ["V6", "V6_MINI", "V6_WILD"];
 
 const json = (status, body) =>
@@ -70,7 +73,23 @@ function buildGenerateBody(input, callBackUrl) {
   return body;
 }
 
+// Asks Supabase Auth whether the token belongs to a valid, signed-in user.
+async function isSignedIn(req) {
+  const auth = req.headers.get("authorization") || "";
+  if (!auth.startsWith("Bearer ")) return false;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: auth },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export default async (req) => {
+  if (!(await isSignedIn(req))) return json(401, { code: "AUTH", msg: "Your session ended. Sign in again." });
+
   const key = str(req.headers.get("x-suno-key"), 200);
   if (!key) return json(401, { code: 401, msg: "API key required." });
 
